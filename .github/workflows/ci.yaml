@@ -1,0 +1,60 @@
+---
+name: CI
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: yamllint
+        run: yamllint --strict .
+      - name: shellcheck
+        run: |
+          shellcheck --shell=bash \
+            soloist/rootfs/usr/local/bin/soloist-fetch \
+            soloist/rootfs/etc/s6-overlay/s6-rc.d/*/run \
+            soloist/rootfs/etc/s6-overlay/s6-rc.d/soloist/finish
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: soloist/Dockerfile
+
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: lint
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build add-on image
+        run: |
+          base=$(yq ".build_from.${{ matrix.arch }}" soloist/build.yaml)
+          docker build \
+            --build-arg BUILD_FROM="${base}" \
+            --build-arg BUILD_ARCH=${{ matrix.arch }} \
+            -t soloist-test soloist
+      - name: Check the image contains no Soloist binary
+        run: |
+          if docker run --rm --entrypoint bash soloist-test \
+              -c 'find / -xdev -type f -name soloist | grep -v s6-rc.d'; then
+            echo "Soloist must not be bundled in the image" >&2
+            exit 1
+          fi

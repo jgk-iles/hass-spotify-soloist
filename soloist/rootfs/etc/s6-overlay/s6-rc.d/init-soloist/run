@@ -1,0 +1,29 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Validates the configuration and makes sure a Soloist build is installed
+# ==============================================================================
+declare cache_size
+declare rc=0
+
+bashio::config.require 'api_key' \
+  "Spotify Soloist needs your own API key, see the add-on documentation"
+
+cache_size=$(bashio::config 'cache_size')
+if (( cache_size > 0 && cache_size < 100 )); then
+  bashio::exit.nok "cache_size must be 0 (unlimited) or at least 100 MB"
+fi
+
+mkdir -p /data/soloist/bin /data/soloist/data /data/soloist/cache
+chmod 0700 /data/soloist/data
+
+soloist-fetch || rc=$?
+
+if (( rc == 1 )); then
+  if [[ -x /data/soloist/bin/soloist ]]; then
+    bashio::log.warning "Could not update Soloist, using the installed build"
+  else
+    bashio::exit.nok "Could not download Spotify Soloist; is the internet reachable?"
+  fi
+fi

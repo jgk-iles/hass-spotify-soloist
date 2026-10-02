@@ -1,0 +1,60 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Runs Spotify Soloist
+# ==============================================================================
+readonly BIN_DIR="/data/soloist/bin"
+readonly DATA_DIR="/data/soloist/data"
+readonly EXPIRED_MARKER="/run/soloist-expired"
+readonly EXPIRED_RETRY_INTERVAL=1800
+
+declare -a options
+declare rc
+declare ws_port
+
+# Promote a build staged by the updater
+if [[ -x "${BIN_DIR}/soloist.new" ]]; then
+  bashio::log.info "Switching to the newly downloaded Soloist build"
+  mv -f "${BIN_DIR}/soloist.new" "${BIN_DIR}/soloist"
+  mv -f "${BIN_DIR}/.etag.new" "${BIN_DIR}/.etag" 2>/dev/null || true
+  rm -f "${EXPIRED_MARKER}"
+fi
+
+# The last run exited because its build expired; wait for a newer one
+while [[ -f "${EXPIRED_MARKER}" ]]; do
+  rc=0
+  soloist-fetch || rc=$?
+  if (( rc == 2 )); then
+    rm -f "${EXPIRED_MARKER}"
+  else
+    bashio::log.warning \
+      "No newer Soloist build available yet, retrying in $(( EXPIRED_RETRY_INTERVAL / 60 )) minutes"
+    sleep "${EXPIRED_RETRY_INTERVAL}"
+  fi
+done
+
+options+=(--device-name "$(bashio::config 'name')")
+options+=(--api-key "$(bashio::config 'api_key')")
+options+=(--data-dir "${DATA_DIR}")
+options+=(--cache-dir /data/soloist/cache)
+options+=(--cache-size "$(bashio::config 'cache_size')")
+options+=(--initial-volume "$(bashio::config 'initial_volume')")
+
+# The WebSocket API is always enabled on loopback so `soloist ctl` works;
+# a configured port exposes it on the network instead.
+if bashio::config.has_value 'websocket_port'; then
+  ws_port=$(bashio::config 'websocket_port')
+  bashio::log.warning \
+    "Exposing the Soloist WebSocket API on port ${ws_port}; it has no authentication"
+  options+=(--ws "0.0.0.0:${ws_port}")
+else
+  options+=(--ws "127.0.0.1:0")
+fi
+
+if bashio::debug; then
+  options+=(--verbose)
+fi
+
+bashio::log.info "Starting Spotify Soloist..."
+exec "${BIN_DIR}/soloist" "${options[@]}"

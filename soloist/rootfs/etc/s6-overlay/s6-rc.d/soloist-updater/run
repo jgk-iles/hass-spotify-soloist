@@ -1,0 +1,42 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Periodically downloads newer Soloist builds (they expire after 90 days) and
+# restarts Soloist with the new build once nothing is playing.
+# ==============================================================================
+readonly BIN_DIR="/data/soloist/bin"
+readonly DATA_DIR="/data/soloist/data"
+readonly CHECK_INTERVAL=43200
+readonly IDLE_POLL_INTERVAL=60
+
+declare status
+
+if bashio::config.false 'auto_update'; then
+  bashio::log.info "Automatic Soloist updates are disabled"
+  exec sleep infinity
+fi
+
+while true; do
+  # The first check already happened during start up
+  sleep "${CHECK_INTERVAL}"
+
+  soloist-fetch --stage || true
+  if [[ ! -x "${BIN_DIR}/soloist.new" ]]; then
+    continue
+  fi
+
+  while true; do
+    status=$(
+      "${BIN_DIR}/soloist" ctl --data-dir "${DATA_DIR}" now --json 2>/dev/null \
+        | jq -r '.status // empty' 2>/dev/null
+    ) || true
+    if [[ "${status}" != "playing" ]]; then
+      break
+    fi
+    sleep "${IDLE_POLL_INTERVAL}"
+  done
+
+  bashio::log.info "Restarting Soloist to apply the new build"
+  s6-svc -r /run/service/soloist
+done

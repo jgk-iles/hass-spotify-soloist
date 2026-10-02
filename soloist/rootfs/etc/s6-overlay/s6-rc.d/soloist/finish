@@ -1,0 +1,22 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Handles Soloist exiting: fetch a new build when expired, otherwise take
+# down the S6 supervision tree when Soloist fails.
+# ==============================================================================
+readonly EXIT_EXPIRED=10
+
+if [[ "${1}" -eq "${EXIT_EXPIRED}" ]]; then
+  bashio::log.warning "This Soloist build has expired, fetching a newer one"
+  # The run script downloads the new build; finish scripts must stay short
+  touch /run/soloist-expired
+  exit 0
+fi
+
+if [[ "${1}" -ne 0 ]] && [[ "${1}" -ne 256 ]]; then
+  bashio::log.warning "Soloist crashed, halting add-on"
+  /run/s6/basedir/bin/halt
+fi
+
+bashio::log.info "Soloist stopped."

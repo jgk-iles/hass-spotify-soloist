@@ -1,0 +1,127 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Downloads the official Spotify Soloist build for this architecture.
+#
+# Spotify does not allow Soloist binaries to be redistributed, so the add-on
+# image never contains one. Instead it is fetched from Spotify's CDN at
+# runtime and kept in /data. Builds expire after 90 days, so the ETag of the
+# published archive is stored and compared to detect newer builds.
+#
+# Usage: soloist-fetch [--stage]
+#   --stage  Place a newer build next to the installed one (soloist.new),
+#            to be promoted on the next start of the soloist service.
+#
+# Exit codes:
+#   0  Installed (or staged) build is already the latest
+#   1  Fetching failed
+#   2  A newer build was installed (or staged)
+# ==============================================================================
+readonly BASE_URL="https://soloist-builds.spotifycdn.com"
+readonly BIN_DIR="/data/soloist/bin"
+
+declare arch
+declare url
+declare stage=false
+declare target="soloist"
+declare remote_etag
+declare build_id
+declare tmp
+declare version
+
+if [[ "${1:-}" == "--stage" ]]; then
+  stage=true
+  target="soloist.new"
+fi
+
+case "$(uname -m)" in
+  aarch64) arch="arm64" ;;
+  x86_64) arch="x86_64" ;;
+  *)
+    bashio::log.error "Unsupported architecture: $(uname -m)"
+    exit 1
+    ;;
+esac
+url="${BASE_URL}/soloist_release_${arch}.tar.gz"
+
+mkdir -p "${BIN_DIR}"
+
+# Ask the CDN which build is currently published
+remote_etag=$(
+  curl -sfIL --max-time 30 "${url}" \
+    | tr -d '\r' \
+    | awk -F': ' 'tolower($1) == "etag" { print $2 }' \
+    | tail -n 1
+) || true
+
+if bashio::var.is_empty "${remote_etag}"; then
+  bashio::log.warning "Could not reach ${url} to check for Soloist updates"
+  exit 1
+fi
+
+# Include the architecture, so a backup restored on other hardware re-downloads
+build_id="${arch} ${remote_etag}"
+
+if [[ -x "${BIN_DIR}/soloist" ]] \
+  && [[ "$(cat "${BIN_DIR}/.etag" 2>/dev/null)" == "${build_id}" ]]; then
+  bashio::log.debug "Installed Soloist build is up to date"
+  exit 0
+fi
+
+if [[ "${stage}" == true ]] && [[ -x "${BIN_DIR}/soloist.new" ]] \
+  && [[ "$(cat "${BIN_DIR}/.etag.new" 2>/dev/null)" == "${build_id}" ]]; then
+  bashio::log.debug "Latest Soloist build is already staged"
+  exit 0
+fi
+
+bashio::log.info "Downloading Spotify Soloist (${arch}) from ${BASE_URL}..."
+
+tmp=$(mktemp -d "${BIN_DIR}/.download.XXXXXX")
+trap 'rm -rf "${tmp}"' EXIT
+
+if ! curl -sfL --max-time 600 -D "${tmp}/headers" -o "${tmp}/soloist.tar.gz" "${url}"; then
+  bashio::log.error "Failed to download ${url}"
+  exit 1
+fi
+
+# Prefer the ETag of what we actually downloaded, in case it changed since HEAD
+remote_etag=$(
+  tr -d '\r' < "${tmp}/headers" \
+    | awk -F': ' 'tolower($1) == "etag" { print $2 }' \
+    | tail -n 1
+)
+build_id="${arch} ${remote_etag}"
+
+if ! tar -xzf "${tmp}/soloist.tar.gz" -C "${tmp}" soloist; then
+  bashio::log.error "Downloaded archive does not contain a soloist executable"
+  exit 1
+fi
+tar -xzf "${tmp}/soloist.tar.gz" -C "${tmp}" \
+  CHANGELOG.md THIRD_PARTY_LICENSES.txt 2>/dev/null || true
+
+chmod 0755 "${tmp}/soloist"
+if ! version=$("${tmp}/soloist" --version 2>&1); then
+  bashio::log.error "Downloaded Soloist build does not run (it may have expired):"
+  bashio::log.error "${version}"
+  exit 1
+fi
+bashio::log.info "Downloaded ${version//$'\n'/, }"
+
+for doc in CHANGELOG.md THIRD_PARTY_LICENSES.txt; do
+  if [[ -f "${tmp}/${doc}" ]]; then
+    mv -f "${tmp}/${doc}" "${BIN_DIR}/${doc}"
+  fi
+done
+
+mv -f "${tmp}/soloist" "${BIN_DIR}/${target}"
+if [[ "${stage}" == true ]]; then
+  echo "${build_id}" > "${BIN_DIR}/.etag.new"
+  bashio::log.info "Staged new Soloist build; it will be used on the next restart"
+else
+  echo "${build_id}" > "${BIN_DIR}/.etag"
+  rm -f "${BIN_DIR}/soloist.new" "${BIN_DIR}/.etag.new"
+  bashio::log.info "Installed new Soloist build"
+fi
+
+exit 2

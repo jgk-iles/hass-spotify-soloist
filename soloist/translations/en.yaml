@@ -1,0 +1,36 @@
+---
+configuration:
+  log_level:
+    name: Log level
+    description: >-
+      Controls the level of log details the add-on provides. Setting it to
+      debug or trace also enables verbose logging in Soloist.
+  name:
+    name: Name
+    description: >-
+      The name of your device (the Spotify Connect target), as shown on
+      the official Spotify clients.
+  api_key:
+    name: Soloist API key
+    description: >-
+      Your personal Spotify Soloist API key, generated in the Spotify for
+      Developers dashboard with a Premium account.
+  initial_volume:
+    name: Initial volume
+    description: >-
+      Initial volume in % from 0-100.
+  cache_size:
+    name: Cache size
+    description: >-
+      Maximum size of the playback cache in MB. Use 0 for unlimited, otherwise
+      at least 100.
+  auto_update:
+    name: Automatic updates
+    description: >-
+      Download newer Soloist builds in the background and switch to them when
+      nothing is playing. Soloist builds stop working 90 days after release.
+  websocket_port:
+    name: WebSocket API port
+    description: >-
+      Expose the Soloist WebSocket API on this port for other tools. The API
+      has no authentication; leave empty to keep it local to the add-on.
