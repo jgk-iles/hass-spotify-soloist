@@ -1,0 +1,85 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Debug aid: logs the state of the audio streams and outputs on Home
+# Assistant's audio server whenever it changes. Only runs when the log level
+# is debug or trace.
+# ==============================================================================
+readonly RECONNECT_INTERVAL=5
+
+declare last_snapshot=""
+
+if ! bashio::debug; then
+  exec sleep infinity
+fi
+
+# Prints one line per stream (sink input) and output (sink)
+audio_snapshot() {
+  local default_sink
+  local sinks
+  local inputs
+
+  default_sink=$(pactl --format=json info 2>/dev/null | jq -r '.default_sink_name // ""') \
+    || return 1
+  sinks=$(pactl --format=json list sinks 2>/dev/null) || return 1
+  inputs=$(pactl --format=json list sink-inputs 2>/dev/null) || return 1
+
+  jq -rn \
+    --argjson sinks "${sinks}" \
+    --argjson inputs "${inputs}" \
+    --arg default_sink "${default_sink}" '
+    def volume: [.volume[]?.value_percent] | unique | join("/");
+    def yesno: if . then "yes" else "no" end;
+    ($sinks | map({key: (.index | tostring), value: .}) | from_entries) as $sink_by_index
+    | (if ($inputs | length) == 0 then ["stream: none"] else
+        $inputs | map(
+          . as $input
+          | ($sink_by_index[$input.sink | tostring] // {}) as $sink
+          | ($input.properties["application.process.binary"]
+              // $input.properties["application.name"] // "?") as $app
+          | "stream #\($input.index) \($app) \"\($input.properties["media.name"] // "")\""
+            + " corked=\($input.corked | yesno) mute=\($input.mute | yesno)"
+            + " volume=\($input | volume) \($input.sample_specification)"
+            + " -> output #\($input.sink) \($sink.name // "?")"
+        )
+      end)
+    + ($sinks | map(
+        "output #\(.index) \(.name) state=\(.state)"
+        + " mute=\(.mute | yesno) volume=\(volume)"
+        + (if .name == $default_sink then " (default)" else "" end)
+      ))
+    | .[]'
+}
+
+# Logs the snapshot if it differs from the previous one. Timestamps have
+# millisecond precision to line up with Soloist's own log lines.
+log_snapshot() {
+  local snapshot
+  local now
+  local line
+
+  snapshot=$(audio_snapshot) || return 0
+  if [[ "${snapshot}" == "${last_snapshot}" ]]; then
+    return 0
+  fi
+  last_snapshot="${snapshot}"
+
+  now=$(date +%T.%3N)
+  while IFS= read -r line; do
+    bashio::log.info "[audio ${now}] ${line}"
+  done <<< "${snapshot}"
+}
+
+bashio::log.info "Logging audio stream changes (log level is debug)"
+
+while true; do
+  log_snapshot
+  pactl subscribe 2>/dev/null | while IFS= read -r event; do
+    case "${event}" in
+      *" sink-input "* | *" sink "* | *" server"*) log_snapshot ;;
+    esac
+  done
+  bashio::log.warning "[audio] Not connected to the audio server, retrying"
+  sleep "${RECONNECT_INTERVAL}"
+done

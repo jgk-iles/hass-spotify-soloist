@@ -1,6 +1,6 @@
 ---
 name: Spotify Soloist
-version: 0.1.0
+version: 0.1.1
 slug: soloist
 description: >-
   Lossless Spotify Connect speaker for Home Assistant, powered by

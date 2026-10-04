@@ -106,7 +106,10 @@ network who can reach the port can control playback.
 
 Controls how much the add-on logs: `trace`, `debug`, `info`, `notice`,
 `warning`, `error` or `fatal`. Setting it to `debug` or `trace` also turns on
-Soloist's verbose logging.
+Soloist's verbose logging. It also logs every change to the add-on's audio
+streams and outputs on Home Assistant's audio server: whether a stream is
+paused (`corked`), muted, its volume, and which output it plays to. These
+lines start with `[audio`, which helps when sound goes missing.
 
 ## Audio quality and lossless
 

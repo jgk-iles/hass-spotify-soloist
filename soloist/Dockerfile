@@ -9,12 +9,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Spotify Soloist itself is NOT part of this image: Spotify does not allow it
 # to be redistributed, so it is downloaded from Spotify at runtime. It loads
 # libpulse at runtime to play through Home Assistant's audio server.
+# pulseaudio-utils provides pactl for the debug-mode audio logging.
 RUN \
     apt-get update \
     \
     && apt-get install -y --no-install-recommends \
         libatomic1=14.2.0-19 \
         libpulse0=17.0+dfsg1-2+b1 \
+        pulseaudio-utils=17.0+dfsg1-2+b1 \
     \
     && apt-get clean \
     && rm -fr \
