@@ -8,10 +8,13 @@ readonly BIN_DIR="/data/soloist/bin"
 readonly DATA_DIR="/data/soloist/data"
 readonly EXPIRED_MARKER="/run/soloist-expired"
 readonly EXPIRED_RETRY_INTERVAL=1800
+readonly PIPEWIRE_SINK="home_assistant"
+readonly PIPEWIRE_WAIT_SECONDS=30
 
 declare -a options
 declare rc
 declare ws_port
+declare waited
 
 # Promote a build staged by the updater
 if [[ -x "${BIN_DIR}/soloist.new" ]]; then
@@ -54,6 +57,22 @@ fi
 
 if bashio::debug; then
   options+=(--verbose)
+fi
+
+# With the PipeWire backend, wait for PipeWire's output to Home Assistant's
+# audio server. Soloist falls back to PulseAudio when PipeWire isn't running.
+if [[ "$(bashio::config 'audio_backend')" == "pipewire" ]]; then
+  waited=0
+  until pw-dump 2>/dev/null | jq -e --arg name "${PIPEWIRE_SINK}" \
+      'any(.[]; .info.props["node.name"]? == $name)' >/dev/null; do
+    if (( waited >= PIPEWIRE_WAIT_SECONDS )); then
+      bashio::log.warning "PipeWire output to Home Assistant audio is not ready yet"
+      break
+    fi
+    sleep 1
+    waited=$(( waited + 1 ))
+  done
+  options+=(--pipewire-device "${PIPEWIRE_SINK}")
 fi
 
 bashio::log.info "Starting Spotify Soloist..."

@@ -2,20 +2,60 @@
 # shellcheck shell=bash
 # ==============================================================================
 # Home Assistant Add-on: Spotify Soloist
-# Debug aid: logs the state of the audio streams and outputs on Home
-# Assistant's audio server whenever it changes. Only runs when the log level
-# is debug or trace.
+# Debug aid: logs the state of the audio streams and outputs whenever it
+# changes, both in the add-on's PipeWire server (Soloist's own stream) and on
+# Home Assistant's audio server. Only runs when the log level is debug or trace.
 # ==============================================================================
 readonly RECONNECT_INTERVAL=5
+# Events arrive in bursts; wait this long for a burst to end before logging
+readonly COALESCE_SECONDS=0.05
 
 declare last_snapshot=""
+declare pipewire=false
 
 if ! bashio::debug; then
   exec sleep infinity
 fi
 
-# Prints one line per stream (sink input) and output (sink)
-audio_snapshot() {
+if [[ "$(bashio::config 'audio_backend')" == "pipewire" ]]; then
+  pipewire=true
+  until [[ -S "${XDG_RUNTIME_DIR}/pipewire-0" ]]; do
+    sleep 0.2
+  done
+fi
+
+# One line per stream and output in the add-on's PipeWire server
+pipewire_snapshot() {
+  pw-dump 2>/dev/null | jq -r '
+    def yesno: if . then "yes" else "no" end;
+    def volume: (.channelVolumes // [])
+      | map(pow(.; 1 / 3) * 100 | round | "\(.)%") | unique | join("/");
+    [.[] | select(.type == "PipeWire:Interface:Node")] as $nodes
+    | [.[] | select(.type == "PipeWire:Interface:Link") | .info] as $links
+    | ($nodes | map({key: (.id | tostring), value: .info.props["node.name"]})
+        | from_entries) as $name_by_id
+    | ($nodes | map(select(.info.props["media.class"] == "Stream/Output/Audio"))
+      | if length == 0 then ["pipewire stream: none"] else
+          map(
+            . as $node
+            | (.info.params.Props[0]? // {}) as $props
+            | ([$links[] | select(."output-node-id" == $node.id)
+                | "\($name_by_id[."input-node-id" | tostring] // "?") (\(.state))"]
+                | unique | join(", ")) as $targets
+            | "pipewire stream #\(.id) \(.info.props["application.name"] // .info.props["node.name"] // "?")"
+              + " state=\(.info.state) mute=\($props.mute // false | yesno)"
+              + " volume=\($props | volume)"
+              + " -> \(if $targets == "" then "not linked" else $targets end)"
+          )
+        end)
+    + ($nodes | map(select(.info.props["media.class"] == "Audio/Sink"))
+      | map("pipewire output #\(.id) \(.info.props["node.name"]) state=\(.info.state)"))
+    | .[]'
+}
+
+# One line per stream (sink input) and output (sink) on Home Assistant's
+# audio server
+ha_audio_snapshot() {
   local default_sink
   local sinks
   local inputs
@@ -32,20 +72,20 @@ audio_snapshot() {
     def volume: [.volume[]?.value_percent] | unique | join("/");
     def yesno: if . then "yes" else "no" end;
     ($sinks | map({key: (.index | tostring), value: .}) | from_entries) as $sink_by_index
-    | (if ($inputs | length) == 0 then ["stream: none"] else
+    | (if ($inputs | length) == 0 then ["ha-audio stream: none"] else
         $inputs | map(
           . as $input
           | ($sink_by_index[$input.sink | tostring] // {}) as $sink
           | ($input.properties["application.process.binary"]
               // $input.properties["application.name"] // "?") as $app
-          | "stream #\($input.index) \($app) \"\($input.properties["media.name"] // "")\""
+          | "ha-audio stream #\($input.index) \($app) \"\($input.properties["media.name"] // "")\""
             + " corked=\($input.corked | yesno) mute=\($input.mute | yesno)"
             + " volume=\($input | volume) \($input.sample_specification)"
             + " -> output #\($input.sink) \($sink.name // "?")"
         )
       end)
     + ($sinks | map(
-        "output #\(.index) \(.name) state=\(.state)"
+        "ha-audio output #\(.index) \(.name) state=\(.state)"
         + " mute=\(.mute | yesno) volume=\(volume)"
         + (if .name == $default_sink then " (default)" else "" end)
       ))
@@ -55,11 +95,14 @@ audio_snapshot() {
 # Logs the snapshot if it differs from the previous one. Timestamps have
 # millisecond precision to line up with Soloist's own log lines.
 log_snapshot() {
-  local snapshot
+  local snapshot=""
   local now
   local line
 
-  snapshot=$(audio_snapshot) || return 0
+  if [[ "${pipewire}" == true ]]; then
+    snapshot=$(pipewire_snapshot)$'\n'
+  fi
+  snapshot+=$(ha_audio_snapshot) || return 0
   if [[ "${snapshot}" == "${last_snapshot}" ]]; then
     return 0
   fi
@@ -71,15 +114,29 @@ log_snapshot() {
   done <<< "${snapshot}"
 }
 
+# Prints a line for every change on either audio server, until one of the
+# watchers stops (for example because an audio server went away)
+watch_audio_events() {
+  local -a watchers
+
+  pactl subscribe 2>/dev/null &
+  if [[ "${pipewire}" == true ]]; then
+    pw-mon --no-colors --hide-props --hide-params --print-separator 2>/dev/null &
+  fi
+  wait -n
+  mapfile -t watchers < <(jobs -p)
+  kill "${watchers[@]}" 2>/dev/null || true
+}
+
 bashio::log.info "Logging audio stream changes (log level is debug)"
 
 while true; do
   log_snapshot
-  pactl subscribe 2>/dev/null | while IFS= read -r event; do
-    case "${event}" in
-      *" sink-input "* | *" sink "* | *" server"*) log_snapshot ;;
-    esac
+  watch_audio_events | while IFS= read -r _; do
+    # Swallow the rest of a burst of events, then log the new state once
+    while IFS= read -r -t "${COALESCE_SECONDS}" _; do :; done
+    log_snapshot
   done
-  bashio::log.warning "[audio] Not connected to the audio server, retrying"
+  bashio::log.warning "[audio] Lost connection to an audio server, retrying"
   sleep "${RECONNECT_INTERVAL}"
 done

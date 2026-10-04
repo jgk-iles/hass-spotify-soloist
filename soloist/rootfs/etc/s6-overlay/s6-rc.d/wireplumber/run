@@ -1,0 +1,17 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Runs WirePlumber, which connects Soloist's stream to PipeWire's output
+# ==============================================================================
+if [[ "$(bashio::config 'audio_backend')" != "pipewire" ]]; then
+  exec sleep infinity
+fi
+
+# s6 starts services without waiting for them to be ready
+until [[ -S "${XDG_RUNTIME_DIR}/pipewire-0" ]]; do
+  sleep 0.2
+done
+
+bashio::log.info "Starting WirePlumber..."
+exec wireplumber --profile main-embedded

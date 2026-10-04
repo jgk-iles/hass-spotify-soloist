@@ -7,16 +7,25 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Setup base
 # Spotify Soloist itself is NOT part of this image: Spotify does not allow it
-# to be redistributed, so it is downloaded from Spotify at runtime. It loads
-# libpulse at runtime to play through Home Assistant's audio server.
+# to be redistributed, so it is downloaded from Spotify at runtime.
+# Soloist plays to a PipeWire server in the add-on, which tunnels the audio
+# to Home Assistant's audio server (PulseAudio) through libpulse. libpulse also
+# lets Soloist play to PulseAudio directly with audio_backend: pulseaudio.
 # pulseaudio-utils provides pactl for the debug-mode audio logging.
+ENV XDG_RUNTIME_DIR="/run/pipewire"
+
 RUN \
     apt-get update \
     \
     && apt-get install -y --no-install-recommends \
         libatomic1=14.2.0-19 \
+        libpipewire-0.3-modules=1.4.2-1 \
         libpulse0=17.0+dfsg1-2+b1 \
+        libspa-0.2-modules=1.4.2-1 \
+        pipewire=1.4.2-1 \
+        pipewire-bin=1.4.2-1 \
         pulseaudio-utils=17.0+dfsg1-2+b1 \
+        wireplumber=0.5.8-2 \
     \
     && apt-get clean \
     && rm -fr \

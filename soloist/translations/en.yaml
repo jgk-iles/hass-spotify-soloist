@@ -29,6 +29,12 @@ configuration:
     description: >-
       Download newer Soloist builds in the background and switch to them when
       nothing is playing. Soloist builds stop working 90 days after release.
+  audio_backend:
+    name: Audio backend
+    description: >-
+      How Soloist plays to Home Assistant's audio. pipewire (default) uses
+      Soloist's main audio output through PipeWire inside the add-on;
+      pulseaudio plays to Home Assistant's audio server directly.
   websocket_port:
     name: WebSocket API port
     description: >-

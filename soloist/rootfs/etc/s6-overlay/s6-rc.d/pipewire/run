@@ -1,0 +1,15 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Spotify Soloist
+# Runs PipeWire, which forwards Soloist's audio to Home Assistant's audio server
+# ==============================================================================
+if [[ "$(bashio::config 'audio_backend')" != "pipewire" ]]; then
+  exec sleep infinity
+fi
+
+mkdir -p "${XDG_RUNTIME_DIR}"
+chmod 0700 "${XDG_RUNTIME_DIR}"
+
+bashio::log.info "Starting PipeWire..."
+exec pipewire

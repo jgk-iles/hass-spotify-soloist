@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Soloist now plays through a PipeWire server inside the add-on, which
+  forwards the audio to Home Assistant's audio system. PipeWire is Soloist's
+  main audio output. The direct PulseAudio output it used before leaves the
+  next song silent after a song ends on its own, even though the progress bar
+  keeps moving.
+- New `audio_backend` option to go back to the direct PulseAudio output
+  (`pulseaudio`) if needed.
+- Debug audio logging now covers both Soloist's stream in PipeWire and Home
+  Assistant's audio system.
+
 ## 0.1.1
 
 - With the log level set to `debug`, the add-on now also logs the state of

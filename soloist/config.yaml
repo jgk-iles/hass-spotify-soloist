@@ -1,6 +1,6 @@
 ---
 name: Spotify Soloist
-version: 0.1.1
+version: 0.2.0
 slug: soloist
 description: >-
   Lossless Spotify Connect speaker for Home Assistant, powered by
@@ -18,6 +18,7 @@ options:
   initial_volume: 50
   cache_size: 500
   auto_update: true
+  audio_backend: pipewire
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
   name: str
@@ -25,4 +26,5 @@ schema:
   initial_volume: int(0,100)
   cache_size: int(0,)
   auto_update: bool
+  audio_backend: list(pipewire|pulseaudio)
   websocket_port: port?

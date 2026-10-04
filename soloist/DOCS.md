@@ -92,6 +92,18 @@ background and applied when nothing is playing. When disabled, the add-on
 only checks for a newer build when it starts, or when the running build
 expires.
 
+### Option: `audio_backend`
+
+How Soloist's audio reaches Home Assistant:
+
+- `pipewire` (default): Soloist plays to a small PipeWire server inside the
+  add-on, which forwards the audio to Home Assistant's audio system. This is
+  Soloist's main audio output, the one Spotify tests on Raspberry Pi OS.
+- `pulseaudio`: Soloist plays to Home Assistant's audio system (PulseAudio)
+  directly, using its fallback output. With this backend the next song can
+  stay silent after a song ends on its own, even though the progress bar
+  keeps moving.
+
 ### Option: `websocket_port`
 
 Soloist has a [WebSocket API][websocket] for playback state and control.
@@ -106,10 +118,15 @@ network who can reach the port can control playback.
 
 Controls how much the add-on logs: `trace`, `debug`, `info`, `notice`,
 `warning`, `error` or `fatal`. Setting it to `debug` or `trace` also turns on
-Soloist's verbose logging. It also logs every change to the add-on's audio
-streams and outputs on Home Assistant's audio server: whether a stream is
-paused (`corked`), muted, its volume, and which output it plays to. These
-lines start with `[audio`, which helps when sound goes missing.
+Soloist's verbose logging. It also logs every change to the audio streams
+and outputs, which helps when sound goes missing. These lines start with
+`[audio`:
+
+- `pipewire …` lines show Soloist's stream inside the add-on: its state,
+  mute, volume and which output it is linked to.
+- `ha-audio …` lines show Home Assistant's audio system: whether the
+  add-on's stream is paused (`corked`), muted, its volume and format, and
+  which output it plays to.
 
 ## Audio quality and lossless
 
@@ -117,8 +134,10 @@ Soloist has no quality setting of its own. The streaming quality follows
 your Spotify account and the quality settings in your Spotify app.
 Lossless needs a plan that includes it.
 
-Audio is played through Home Assistant's audio system (PulseAudio). Choose
-the output device in the add-on's **Audio** settings.
+Audio is played through Home Assistant's audio system. Choose the output
+device in the add-on's **Audio** settings. Inside the add-on, audio stays in
+32-bit floating point at 44.1 kHz (the rate of Spotify's streams, including
+lossless), so it is not resampled before it reaches Home Assistant.
 
 ## Re-pairing / switching accounts
 
